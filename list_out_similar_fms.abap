@@ -4,7 +4,7 @@ REPORT zfm_similarity_alv.
 PARAMETERS: p_date_from TYPE sy-datum OBLIGATORY,
             p_date_to   TYPE sy-datum OBLIGATORY.
 
-* Validate that the date range is not more than 5 months
+* Validate that the date range is no more than 5 months
 AT SELECTION-SCREEN.
   DATA: lv_months_diff TYPE i.
 
@@ -49,22 +49,26 @@ CONSTANTS: c_similarity_threshold TYPE decfloat34 VALUE 0.8.
 START-OF-SELECTION.
 
 * Step 1: Fetch custom FMs based on date range and standard FMs
-SELECT funcname, uname, cdate INTO TABLE lt_custom_fms
-FROM tfdir
-WHERE ( funcname LIKE 'Z%' OR funcname LIKE 'Y%' )
-  AND cdate BETWEEN p_date_from AND p_date_to.
+SELECT tfdir~funcname, enl~created_by, enl~created_on
+  INTO TABLE lt_custom_fms
+  FROM tfdir
+  INNER JOIN enlndir AS enl ON tfdir~funcname = enl~funcname
+  WHERE ( tfdir~funcname LIKE 'Z%' OR tfdir~funcname LIKE 'Y%' )
+  AND enl~created_on BETWEEN p_date_from AND p_date_to.
 
-SELECT funcname, uname, cdate INTO TABLE lt_standard_fms
-FROM tfdir
-WHERE funcname NOT LIKE 'Z%' AND funcname NOT LIKE 'Y%'.
+SELECT tfdir~funcname, enl~created_by, enl~created_on
+  INTO TABLE lt_standard_fms
+  FROM tfdir
+  INNER JOIN enlndir AS enl ON tfdir~funcname = enl~funcname
+  WHERE tfdir~funcname NOT LIKE 'Z%' AND tfdir~funcname NOT LIKE 'Y%'.
 
 
 * Step 2: Compare function module names for similarity
 LOOP AT lt_custom_fms INTO DATA(ls_custom_fm).
   LOOP AT lt_standard_fms INTO DATA(ls_standard_fm).
     lv_name_similarity = cl_abap_char_utilities=>similarity_ratio(
-                           EXPORTING first  = ls_custom_fm-fm_name
-                                     second = ls_standard_fm-fm_name ).
+                           EXPORTING first  = ls_custom_fm-custom_fm_name
+                                     second = ls_standard_fm-standard_fm_name ).
     IF lv_name_similarity >= c_similarity_threshold.
       APPEND ls_custom_fm TO lt_similar_fms.
       EXIT. " If one match is found, move to the next custom FM
@@ -76,14 +80,14 @@ ENDLOOP.
 LOOP AT lt_similar_fms INTO DATA(ls_similar_fm).
   * Fetch the code of the custom function module
   CALL FUNCTION 'RS_GET_ALL_INCLUDES'
-    EXPORTING funcname = ls_similar_fm-fm_name
+    EXPORTING funcname = ls_similar_fm-custom_fm_name
     TABLES    source    = lt_custom_code.
 
   * Loop through standard function modules
   LOOP AT lt_standard_fms INTO ls_standard_fm.
     * Fetch the code of the standard function module
     CALL FUNCTION 'RS_GET_ALL_INCLUDES'
-      EXPORTING funcname = ls_standard_fm-fm_name
+      EXPORTING funcname = ls_standard_fm-standard_fm_name
       TABLES    source    = lt_standard_code.
 
     * Compare code similarity using your own algorithm or ABAP Utilities
@@ -94,8 +98,8 @@ LOOP AT lt_similar_fms INTO DATA(ls_similar_fm).
     IF lv_code_similarity >= c_similarity_threshold.
       * Append to final list if both name and code are similar
       DATA(ls_final_fm) = VALUE ty_fm_info(
-                            custom_fm_name = ls_similar_fm-fm_name
-                            standard_fm_name = ls_standard_fm-fm_name
+                            custom_fm_name = ls_similar_fm-custom_fm_name
+                            standard_fm_name = ls_standard_fm-standard_fm_name
                             created_by = ls_similar_fm-created_by
                             created_on = ls_similar_fm-created_on ).
       APPEND ls_final_fm TO lt_final_list.
